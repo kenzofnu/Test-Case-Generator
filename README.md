@@ -111,6 +111,10 @@ Follow these steps exactly to get the project running on any machine.
     
     # Get this from Google AI Studio (https://aistudio.google.com/ > Get API key)
     GOOGLE_API_KEY="AIzaSy...your-real-google-api-key-goes-here"
+
+    # OPTIONAL: If your organization uses a custom Shortcut URL, set it here.
+    # If you leave this out, it will default to the standard "https://api.app.shortcut.com/api/v3/stories/"
+    # SHORTCUT_API_BASE_URL="https://your-company.shortcut.com/api/v3/stories/"
     ```
 
 ## 6. How to Run the Application
@@ -123,41 +127,3 @@ Once the setup is complete, running the app is simple.
     streamlit run app.py
     ```
 3.  A new tab should automatically open in your web browser with the application running. If not, the terminal will give you a local URL (like `http://localhost:8501`) to open manually.
-
-## 7. The Demo Flow (Presentation Script)
-
-Here is a script for presenting the application.
-
-*   **Introduction:** Start with the "Problem Statement" and the "Core Concept" analogy explained above.
-*   **Step 1: Upload Knowledge Base:**
-    On the left sidebar, use the file uploader to select one or more PDF documents. These act as the AI's "long-term memory."
-    Explain that these could be technical specifications, design documents, or process flows.
-*   **Step 2: Process the Knowledge:**
-    Click the "Process Knowledge Base" button.
-    Explain that the app is now reading the PDFs and creating a searchable index so the AI can find relevant information instantly.
-*   **Step 3: Enter the Story ID:**
-    Enter a valid numeric ID from Shortcut into the text box.
-*   **Step 4: Generate the First Draft:**
-    Click the "Generate Test Cases" button.
-    Point out how the AI generates a beautiful, structured table, not just raw text. This is a key feature.
-    Explain that the app is fetching the story, searching the knowledge base, and sending all of that information to the Gemini AI to generate the initial test plan.
-*   **Step 5: Interactive Revisions:**
-    Use the chat box at the bottom to ask for a change. Be specific.
-    
-    > Good demo commands:
-    > *   "Add a new negative test case for an incorrect user role."
-    > *   "In the first test case, change the 'Expected Outcome' to also include a success notification."
-    > *   "Can you combine the two tests related to invalid PIIDs into a single scenario?"
-    
-    After each request, point out how the AI regenerates the entire table with the requested changes, maintaining the professional format.
-*   **Step 6: Export the Final Result:**
-    Once you are happy with the test plan, click the "Export as CSV" button.
-    Open the downloaded `.csv` file in Excel or Google Sheets to show that it is a clean, structured file ready for use in other tools.
-
-## 8. Troubleshooting
-
-If something goes wrong during the demo, here are the most likely causes:
-
-*   **Error:** `ModuleNotFoundError`: The `pip install -r requirements.txt` command was not run, or you are not in the `venv`.
-*   **Error:** `API Key not found`: The `.env` file is missing, named incorrectly, or doesn't contain the correct keys.
-*   **Error:** `429 Resource Exhausted (Rate Limit)`: You are making revisions too quickly. The Gemini 2.0 Flash model has a high limit (15 requests per minute), but it's not infinite. Wait about 5-10 seconds between revision requests. If this happens, just say "Looks like we're a bit too fast for the free tier, let's give it a moment" and wait 20 seconds before trying again.

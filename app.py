@@ -1,30 +1,26 @@
 import streamlit as st
-import os
-import requests
-from dotenv import load_dotenv
 import pandas as pd
 import io
 
 # --- LangChain Imports ---
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.chains import create_retrieval_chain
-from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-import tempfile
+
+# --- Local Imports ---
+from core_logic import (
+    load_api_keys,
+    get_shortcut_story_details,
+    get_retriever_from_files,
+    create_rag_chain,
+    SHORTCUT_BASE_URL  # Import the default URL
+)
 
 # --- Load API Keys ---
-load_dotenv()
-if "GOOGLE_API_KEY" not in os.environ or "SHORTCUT_API_TOKEN" not in os.environ:
-    st.error("Please provide GOOGLE_API_KEY and SHORTCUT_API_TOKEN in your .env file.")
-    st.stop()
-    
-SHORTCUT_API_TOKEN = os.environ["SHORTCUT_API_TOKEN"]
-SHORTCUT_BASE_URL = "https://api.app.shortcut.com/api/v3/stories/"
+try:
+    load_api_keys()
+except Exception as e:
+    st.error(f"Failed to load API keys: {e}")
 
 # --- Helper Functions for Conversion ---
 
@@ -56,39 +52,6 @@ def convert_md_to_csv(markdown_string):
         st.warning("Could not parse table for CSV export. Exporting raw text.")
         return markdown_string
 
-# --- Core Functions (Identical) ---
-@st.cache_resource
-def get_embedding_function():
-    return HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-
-def process_uploaded_files(uploaded_files):
-    docs = []
-    with st.spinner("Processing knowledge base..."):
-        for uploaded_file in uploaded_files:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-                tmp_file.write(uploaded_file.getvalue())
-                tmp_file_path = tmp_file.name
-            loader = PyPDFLoader(tmp_file_path)
-            docs.extend(loader.load())
-            os.remove(tmp_file_path)
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-    doc_splits = text_splitter.split_documents(docs)
-    vectorstore = Chroma.from_documents(documents=doc_splits, embedding=get_embedding_function())
-    return vectorstore.as_retriever()
-
-def get_shortcut_story_details(story_id):
-    headers = {"Content-Type": "application/json", "Shortcut-Token": SHORTCUT_API_TOKEN}
-    try:
-        response = requests.get(f"{SHORTCUT_BASE_URL}{story_id}", headers=headers)
-        response.raise_for_status()
-        story_data = response.json()
-        story_title = story_data.get("name", "No Title")
-        story_description = story_data.get("description", "No Description")
-        return f"**Feature:** {story_title}\n\n{story_description}"
-    except requests.exceptions.RequestException as e:
-        st.error(f"Error fetching story from Shortcut: {e}")
-        return None
-
 # --- Main App UI ---
 st.set_page_config(page_title="AI Test Case Generator", layout="wide")
 st.title("🚀 AI Test Case Generator")
@@ -100,18 +63,38 @@ if "latest_test_cases_md" not in st.session_state: st.session_state.latest_test_
 
 with st.sidebar:
     st.header("Setup")
-    uploaded_files = st.file_uploader("1. Upload Knowledge Base PDFs", type="pdf", accept_multiple_files=True)
+    
+    with st.expander("Advanced Settings"):
+        shortcut_url_override = st.text_input(
+            "Shortcut API Base URL", 
+            value=SHORTCUT_BASE_URL, 
+            help="The base URL for the Shortcut API, ending in `/stories/`. You can also set this with the `SHORTCUT_API_BASE_URL` environment variable."
+        )
+
+    # Updated file uploader to accept more types
+    uploaded_files = st.file_uploader(
+        "1. Upload Knowledge Base Documents", 
+        type=["pdf", "docx", "doc", "txt", "md"], 
+        accept_multiple_files=True
+    )
+    
+    use_persistent_db = st.checkbox("Use Persistent Knowledge Base", value=False, help="If checked, uploaded documents will be added to a persistent database on disk. If unchecked, the knowledge base will be in-memory for this session only.")
+
     if uploaded_files:
         if st.button("Process Knowledge Base"):
-            st.session_state.retriever = process_uploaded_files(uploaded_files)
-            st.success("Knowledge base is ready!")
+            with st.spinner("Processing knowledge base..."):
+                st.session_state.retriever = get_retriever_from_files(uploaded_files, use_persistent_db)
+                st.success("Knowledge base is ready!")
+
     shortcut_id = st.text_input("2. Enter Shortcut Story ID", placeholder="e.g., 12345")
 
     if st.button("Generate Test Cases", type="primary"):
         if st.session_state.retriever and shortcut_id:
             with st.spinner("Generating with Gemini 2.0 Flash..."):
-                story_content = get_shortcut_story_details(shortcut_id)
-                if story_content:
+                story_content = get_shortcut_story_details(shortcut_id, base_url=shortcut_url_override)
+                if story_content.startswith("Error:"):
+                    st.error(story_content)
+                else:
                     st.session_state.messages = []
                     llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash")
                     
@@ -140,8 +123,7 @@ with st.sidebar:
                     **YOUR GENERATED TEST CASES (MARKDOWN TABLE):**
                     """)
 
-                    document_chain = create_stuff_documents_chain(llm, initial_prompt)
-                    retrieval_chain = create_retrieval_chain(st.session_state.retriever, document_chain)
+                    retrieval_chain = create_rag_chain(llm, st.session_state.retriever, initial_prompt)
                     response = retrieval_chain.invoke({"input": story_content})
                     st.session_state.latest_test_cases_md = response["answer"]
                     st.session_state.messages.append(AIMessage(content=st.session_state.latest_test_cases_md))
